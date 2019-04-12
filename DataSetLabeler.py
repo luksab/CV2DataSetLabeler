@@ -22,6 +22,12 @@ class MyEncoder(json.JSONEncoder):
         else:
             return super(MyEncoder, self).default(obj)
 
+import tensorflow as tf
+from keras.backend.tensorflow_backend import set_session
+config = tf.ConfigProto()
+config.gpu_options.per_process_gpu_memory_fraction = 0.3
+set_session(tf.Session(config=config))
+
 from keras_retinanet import models
 if not 'detection_model' in globals():
     detection_model = models.load_model('detector.h5', backbone_name='resnet101')
@@ -34,6 +40,7 @@ ix,iy = -1,-1
 x,y = -1,-1
 ident = 0
 UIWidth = 40
+showLabels = True
 
 
 def selectLabel(x,y):
@@ -65,7 +72,7 @@ def predict():
 def mouseEvent(event,nx,ny,flags,param):
     global ix,iy,x,y,labels,state,UIWidth,select,selectedLabel,possibleLabels
 
-    if(nx < UIWidth):
+    if(nx < UIWidth+155*showLabels):
         if(event == cv2.EVENT_LBUTTONDOWN):
             Button = int(ny/UIWidth)
             print(Button)
@@ -77,14 +84,12 @@ def mouseEvent(event,nx,ny,flags,param):
                 selectedLabel = Button-2
         return
     if(not state):
-        ix,iy = nx-UIWidth,ny
-    if(state):
-        x,y = nx-UIWidth,ny
+        ix,iy = nx-UIWidth-155*showLabels,ny
     
     if event == cv2.EVENT_LBUTTONDOWN:
         #print(select)
         if(select):
-            if(selectLabel(nx-UIWidth,ny)):
+            if(selectLabel(nx-UIWidth-155*showLabels,ny)):
                 #print('selected!')
                 #select = False
                 pass
@@ -94,7 +99,6 @@ def mouseEvent(event,nx,ny,flags,param):
             labels.append({'box': box, 'score': 1, 'label': possibleLabels[selectedLabel]['label']})
         state = not state
         #print(state)
-
 #    elif event == cv2.EVENT_MOUSEMOVE:
 #        
 #        x,y = nx,ny
@@ -105,6 +109,7 @@ def mouseEvent(event,nx,ny,flags,param):
 #            cv2.rectangle(img,(ix,iy),(x,y),(0,255,0),-1)
 #        else:
 #            cv2.circle(img,(x,y),5,(0,0,255),-1)
+    x,y = nx-UIWidth-155*showLabels,ny
 
 img = np.zeros((512,512,3), np.uint8)
 
@@ -146,6 +151,23 @@ def readLabels():
         print(json_file)
         return json.loads(json_file)
     
+def removeDoublesFromJson():
+    with open('guru99.txt','r+') as f:
+        json_file = [line for line in f]
+        json_file = ''.join(json_file)
+        json_file = json.loads(json_file)
+        json_file.reverse()#reverse to keep newest
+        
+        seen_titles = set()
+        noDuplicates = []
+        for obj in json_file:
+            if obj['id'] not in seen_titles:
+                noDuplicates.append(obj)
+                seen_titles.add(obj['id'])
+        f.seek(0)
+        f.write(json.dumps(noDuplicates, cls=MyEncoder))
+    
+    
 import os
 root = '/run/media/lukas/Data4Tb/danbooru2018/original/'
 def getPath(identifier,rootDir = root):
@@ -184,6 +206,7 @@ def find_label(label_name):
 selectedLabel = 0
 def makeUI(height):
     UI = np.zeros((height,UIWidth,3), np.uint8)
+    UI[:] = (128,128,128)
     
     #Select Box
     cv2.circle(UI,(int(UIWidth/2),int(UIWidth/3)+5),int(UIWidth/3),(255,255,255),5,cv2.LINE_AA)
@@ -197,6 +220,14 @@ def makeUI(height):
         if(selectedLabel == i-2):
             cv2.circle(UI,(int(UIWidth/2),int(UIWidth/3)+5+i*UIWidth),int(UIWidth/3),label['color'],-1,cv2.LINE_AA)
     
+    if(showLabels):
+        Labels = np.zeros((height,155,3), np.uint8)
+        Labels[:] = (128,128,128)
+        for i, label in enumerate(possibleLabels,start = 2):
+            TpLeft = (0,int(UIWidth/3)+13+i*UIWidth)
+            #cv2.putText(Labels, label['label'], TpLeft, font, 0.75, (0,), 4,cv2.LINE_AA)
+            cv2.putText(Labels, label['label'], TpLeft, font, 0.75, (255,), 2,cv2.LINE_AA)
+        UI = np.hstack((Labels, UI))
     return UI
 
 i = 0
@@ -222,6 +253,11 @@ while(1):
             cv2.rectangle(temp, TpLeft, BRight, find_label(box['label'])['color'], 2)
         cv2.putText(temp, box['label'], TpLeft, font, 0.75, (0,), 4,cv2.LINE_AA)
         cv2.putText(temp, box['label'], TpLeft, font, 0.75, (255,), 2,cv2.LINE_AA)
+    
+    #draw mouseLines
+    cv2.line(temp,(0,y),(width,y),(255,255,255))
+    cv2.line(temp,(x,0),(x,height),(255,255,255))
+    
     
     temp = np.hstack((makeUI(height), temp))
     cv2.imshow('image',temp)
