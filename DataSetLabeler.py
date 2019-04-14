@@ -8,7 +8,6 @@ Created on Thu Apr 11 08:04:37 2019
 
 import cv2
 import numpy as np
-import random
 import detector
 import json
 class MyEncoder(json.JSONEncoder):
@@ -21,6 +20,9 @@ class MyEncoder(json.JSONEncoder):
             return obj.tolist()
         else:
             return super(MyEncoder, self).default(obj)
+import pickle
+Data = pickle.load( open( '/home/lukas/Documents/Py/Metadata/metadata.pk', "rb" ) )
+ids = Data[Data[:,3] >= 1][:,0]
 
 import tensorflow as tf
 from keras.backend.tensorflow_backend import set_session
@@ -40,8 +42,10 @@ ix,iy = -1,-1
 x,y = -1,-1
 ident = 0
 UIWidth = 40
+UIHeight= 40
 showLabels = True
-
+hideLabels = False
+changedLabels = False
 
 def selectLabel(x,y):
     global labels
@@ -59,57 +63,48 @@ def selectLabel(x,y):
     return False
 
 def deleteSelected():
-    global labels
+    global labels,changedLabels
     labels[:] = [d for d in labels if d.get('active') != True]
+    changedLabels = True
 
 
 def predict():
     global labels, img
     labels = m.detect(img,min_prob=cv2.getTrackbarPos('minP','image')/100)
-    #print(labels)
 
 # mouse callback function
 def mouseEvent(event,nx,ny,flags,param):
-    global ix,iy,x,y,labels,state,UIWidth,select,selectedLabel,possibleLabels
+    global ix,iy,x,y,labels,state,UIWidth,select,selectedLabel,possibleLabels,changedLabels
 
     if(nx < UIWidth+155*showLabels):
         if(event == cv2.EVENT_LBUTTONDOWN):
-            Button = int(ny/UIWidth)
+            Button = int((ny-UIHeight)/UIWidth)
             print(Button)
-            if(Button is 0):
+            if(Button == 0):
                 select = not select
-            if(Button is 1):
+            if(Button == 1):
                 predict()
+                changedLabels = True
             else:
                 selectedLabel = Button-2
         return
     if(not state):
-        ix,iy = nx-UIWidth-155*showLabels,ny
+        ix,iy = nx-UIWidth-155*showLabels,ny-UIHeight
     
     if event == cv2.EVENT_LBUTTONDOWN:
-        #print(select)
         if(select):
-            if(selectLabel(nx-UIWidth-155*showLabels,ny)):
-                #print('selected!')
-                #select = False
+            if(selectLabel(nx-UIWidth-155*showLabels,ny-UIHeight)):
                 pass
             return
         if(state):
             box = [min(ix,x),min(iy,y),max(ix,x),max(iy,y)]
             labels.append({'box': box, 'score': 1, 'label': possibleLabels[selectedLabel]['label']})
+            changedLabels = True
         state = not state
-        #print(state)
-#    elif event == cv2.EVENT_MOUSEMOVE:
-#        
-#        x,y = nx,ny
 
     elif event == cv2.EVENT_RBUTTONUP:
         state = not state
-#        if mode == True:
-#            cv2.rectangle(img,(ix,iy),(x,y),(0,255,0),-1)
-#        else:
-#            cv2.circle(img,(x,y),5,(0,0,255),-1)
-    x,y = nx-UIWidth-155*showLabels,ny
+    x,y = nx-UIWidth-155*showLabels,ny-UIHeight
 
 img = np.zeros((512,512,3), np.uint8)
 
@@ -121,41 +116,60 @@ cv2.createTrackbar('minP','image',30,100,nothing)
 cv2.resizeWindow('image', 1920, 1080)
 
 
-def doneWithImage(write = True):
-    global ix,iy,x,y,labels,state,lastLabels
-    if(write):
-        pic = {'id':ident,'labels':labels}
-        jsonLabels = json.dumps(pic, cls=MyEncoder)
-        with open('guru99.txt','r+') as f:
-            json_file = [line for line in f]
-            json_file = ''.join(json_file)
-            f.seek(0)
-            f.write(json_file[:-2]+',\n')
-            f.write(jsonLabels+']\n')
+def doneWithImage(write = True, goBack = False):
+    global ix,iy,x,y,labels,state,lastLabels,ident,changedLabels
+    if(write and changedLabels):
+        removeDoublesFromJson()
+        with open('lastID.txt','r+') as f:
+            lastID = int(next(f))
+            if(ident > lastID):
+                f.seek(0)
+                f.write(str(ident))
+    changedLabels = False
     labels = []
     lastLabels = []
-    i = 0
-    while(not getPath(i)):
-        i += int(random.randint(1,100))
+    if(goBack):
+        if(ident>1):
+            i = ident-1
+            while(not (i in ids) or not getPath(i)):
+                i -= 1
+        else:
+            i = 1
+    else:
+        i = ident+1
+        while(not (i in ids) or not getPath(i)):
+            i += 1
     readImage(i)
+    ident = i
     data = readLabels()
     for image in data:
         if(image['id'] == i):
             labels = image['labels']
     
+def jumpToLast():
+    with open('lastID.txt') as f:
+        lastID = int(next(f))
+    global ident
+    ident = lastID+1
+    doneWithImage(False,True)
+
 
 def readLabels():
-    with open('guru99.txt') as f:
+    file_name = 'metaData/labels'+str(ident%1000).zfill(4)+'.json'
+    with open(file_name) as f:
         json_file = [line.rstrip('\n') for line in f]
         json_file = ''.join(json_file)
-        print(json_file)
+        #print(json_file)
         return json.loads(json_file)
     
 def removeDoublesFromJson():
-    with open('guru99.txt','r+') as f:
+    file_name = 'metaData/labels'+str(ident%1000).zfill(4)+'.json'
+    with open(file_name,'r+') as f:
         json_file = [line for line in f]
         json_file = ''.join(json_file)
         json_file = json.loads(json_file)
+        if(len(labels)>0):
+            json_file.append({'id':ident,'labels':labels})
         json_file.reverse()#reverse to keep newest
         
         seen_titles = set()
@@ -165,7 +179,8 @@ def removeDoublesFromJson():
                 noDuplicates.append(obj)
                 seen_titles.add(obj['id'])
         f.seek(0)
-        f.write(json.dumps(noDuplicates, cls=MyEncoder))
+        noDuplicates.reverse()#reverse back, just because
+        f.write(json.dumps(noDuplicates))#, cls=MyEncoder))
     
     
 import os
@@ -191,10 +206,7 @@ def readImage(idPic):
     height, width, channels = img.shape
     #cv2.resizeWindow('image', width, height)
 
-possibleLabels = [{'label':'FACE','color': (247, 206, 118)}, {'label':'BELLY', 'color': (247, 215, 145)},
-                  {'label':'BUTTOCKS', 'color': (244, 149, 90)}, {'label':'F_BREAST', 'color': (244, 89, 184)},
-                  {'label':'F_GENITALIA', 'color': (212, 62, 249)},{'label':'M_GENETALIA', 'color': (249, 62, 62)},
-                  {'label':'M_BREAST', 'color': (249, 68, 62)},{'label':'PANTIES', 'color': (66, 244, 137)}]
+possibleLabels = [{'label':'label1','color': (247, 206, 118)}, {'label':'label2', 'color': (66, 244, 137)}}]
 lastLabels = []
 def find_label(label_name):
     global possibleLabels
@@ -204,7 +216,7 @@ def find_label(label_name):
     return False
 
 selectedLabel = 0
-def makeUI(height):
+def makeUIV(height):
     UI = np.zeros((height,UIWidth,3), np.uint8)
     UI[:] = (128,128,128)
     
@@ -230,61 +242,89 @@ def makeUI(height):
         UI = np.hstack((Labels, UI))
     return UI
 
-i = 0
-while(not getPath(i)):
-    i += int(random.randint(1,100))
-readImage(i)
+def makeUIH(width):
+    UI = np.zeros((UIHeight,width,3), np.uint8)
+    UI[:] = (128,128,128)
+    cv2.putText(UI, str(ident), (int(width/2),30), font, 0.75, (255,), 2,cv2.LINE_AA)
+    return UI
+
+doneWithImage()
 
 font = cv2.FONT_HERSHEY_SIMPLEX
+sinceLast = 10
 while(1):
     temp = img.copy()
     if(state):
-        cv2.rectangle(temp,(ix,iy),(x,y),possibleLabels[selectedLabel]['color'],2)
-    
-    for box in labels:
-        overlay = temp.copy()
-        TpLeft = (box['box'][0], box['box'][1])
-        BRight = (box['box'][2], box['box'][3])
-        if('active' in box):
-            cv2.rectangle(temp, TpLeft, BRight, (255, 255, 255), 2)
-        else:
-            cv2.rectangle(overlay, TpLeft, BRight, find_label(box['label'])['color'], -1)
-            cv2.addWeighted(overlay, 0.5, temp, 1-0.5,0, temp)
-            cv2.rectangle(temp, TpLeft, BRight, find_label(box['label'])['color'], 2)
-        cv2.putText(temp, box['label'], TpLeft, font, 0.75, (0,), 4,cv2.LINE_AA)
-        cv2.putText(temp, box['label'], TpLeft, font, 0.75, (255,), 2,cv2.LINE_AA)
+        cv2.rectangle(temp,(ix,iy),(x,y),possibleLabels[selectedLabel]['color'],1)
+    if(not hideLabels):
+        for box in labels:
+            overlay = temp.copy()
+            TpLeft = (box['box'][0], box['box'][1])
+            BRight = (box['box'][2], box['box'][3])
+            if('active' in box):
+                color = find_label(box['label'])['color']
+                color = (color[0]+100,color[1]+100,color[2]+100)
+                cv2.rectangle(temp, TpLeft, BRight, color, 2)
+            else:
+                cv2.rectangle(overlay, TpLeft, BRight, find_label(box['label'])['color'], -1)
+                cv2.addWeighted(overlay, 0.5, temp, 1-0.5,0, temp)
+                cv2.rectangle(temp, TpLeft, BRight, find_label(box['label'])['color'], 1)
+            cv2.putText(temp, box['label'], TpLeft, font, 0.75, (0,), 4,cv2.LINE_AA)
+            cv2.putText(temp, box['label'], TpLeft, font, 0.75, (255,), 2,cv2.LINE_AA)
     
     #draw mouseLines
-    cv2.line(temp,(0,y),(width,y),(255,255,255))
-    cv2.line(temp,(x,0),(x,height),(255,255,255))
+    if(select):
+        color = (100,100,100)
+    else:
+        color = (200,200,200)
+    cv2.line(temp,(0,y),(width,y),color)
+    cv2.line(temp,(x,0),(x,height),color)
     
     
-    temp = np.hstack((makeUI(height), temp))
+    temp = np.hstack((makeUIV(height), temp))
+    temp = np.vstack((makeUIH(width+UIWidth+155*showLabels), temp))
     cv2.imshow('image',temp)
-    k = cv2.waitKey(1) & 0xFF
-    if k == ord(' '):
-        print('next Image!')
-        doneWithImage()
-    if k == 8:#Backspace
-        print('next Image!')
-        doneWithImage(False)
-    elif k == 115:#s
-        select = not select
-    elif k == 101:#e
-        deleteSelected()
-    elif k == 112:#p
-        predict()
-    elif k == 27:#esc
-        break
-    elif k == 122:#z
-        if(len(labels)>0):
-            lastLabels.append(labels.pop())
-    elif k == 121:#y
-        if(len(lastLabels)>0):
-            labels.append(lastLabels.pop())
-    elif(k>=49 and k<49+len(possibleLabels)):
-        selectedLabel = k-49
-    elif k != 255:
-        print(k)
-
+    k = cv2.waitKey(15) & 0xFF
+    #print(k,sinceLast)
+    if(sinceLast > 15):
+        if k == ord(' '):
+            doneWithImage()
+        elif k == 99:#Right/c
+            doneWithImage(False)
+        elif k == 120:#Left/x
+            doneWithImage(False,True)
+        elif k == 115:#s
+            if(select):
+                for box in labels:
+                    if('active' in box):
+                        del box['active']
+            select = not select
+        elif k == 101:#e
+            deleteSelected()
+        elif k == 106:#j
+            jumpToLast()
+        elif k == 112:#p
+            predict()
+        elif k == 27:#esc
+            break
+        elif k == 104:#h
+            hideLabels = not hideLabels
+        elif k == 122:#z
+            if(len(labels)>0):
+                lastLabels.append(labels.pop())
+                changedLabels = True
+        elif k == 121:#y
+            if(len(lastLabels)>0):
+                labels.append(lastLabels.pop())
+                changedLabels = True
+        elif(k>=49 and k<49+len(possibleLabels)):
+            for box in labels:
+                if('active' in box):
+                    box['label'] = possibleLabels[k-49]['label']
+            selectedLabel = k-49
+        elif k != 255:
+            print(k)
+    if(k != 255):
+        sinceLast = 0
+    sinceLast += 1
 cv2.destroyAllWindows()
