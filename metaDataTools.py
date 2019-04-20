@@ -18,11 +18,12 @@ def generateFiles():
             f.write('[')
             f.write(']')
         
-possibleLabels = {"FACE": 0,"PANTIES": 0,"BRA": 0,"BUTTOCKS": 0,"F_BREAST": 0,"F_GENITALIA": 0,"M_GENETALIA": 0,"HOLDING_H": 0,"CENSORED": 0,"LEWD": 0}
-numImages = 0
+
 def readFromJson():
-    global possibleLabels,numImages
+    possibleLabels = {"FACE": 0,"PANTIES": 0,"BRA": 0,"BUTTOCKS": 0,"F_BREAST": 0,"F_GENITALIA": 0,"M_GENETALIA": 0,"HOLDING_H": 0,"CENSORED": 0,"LEWD": 0}
+    numImages = 0
     for ident in range(1000):
+        print(ident)
         file_name = 'metaData/labels'+str(ident%1000).zfill(4)+'.json'
         with open(file_name,'r') as f:
             json_file = [line.rstrip('\n') for line in f]
@@ -34,15 +35,14 @@ def readFromJson():
                 for label in labels:
                     possibleLabels[label['label']] += 1
                 ident = img['id']
+    return (numImages, possibleLabels)
 
 def printJson():
     import time
     time1 = time.time()
-    readFromJson()
+    print(readFromJson())
     time2 = time.time()
     print('readFromJson function took {:.3f} ms'.format((time2-time1)*1000.0))
-    
-    print(numImages,possibleLabels)
                 
                 
 import os
@@ -57,8 +57,9 @@ def getPath(identifier,rootDir = config.rootDir):
     else:
         return False
     return string
-possibleLabels = {"FACE": '0',"PANTIES": '1',"BRA": '2',"BUTTOCKS": '3',"F_BREAST": '4',"F_GENITALIA": '5',"M_GENETALIA": '6',"HOLDING_H": '7',"CENSORED": '8',"LEWD": '9'}
+
 def convertToYOLO():
+    possibleLabels = {"FACE": '0',"PANTIES": '1',"BRA": '2',"BUTTOCKS": '3',"F_BREAST": '4',"F_GENITALIA": '5',"M_GENETALIA": '6',"HOLDING_H": '7',"CENSORED": '8',"LEWD": '9'}
     with open('train.txt','w+') as export:
         for ident in range(1000):
             file_name = 'metaData/labels'+str(ident%1000).zfill(4)+'.json'

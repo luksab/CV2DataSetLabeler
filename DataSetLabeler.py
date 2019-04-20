@@ -8,7 +8,7 @@ Created on Thu Apr 11 08:04:37 2019
 
 import cv2
 import numpy as np
-import json
+import json, os
 class MyEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.integer):
@@ -20,13 +20,42 @@ class MyEncoder(json.JSONEncoder):
         else:
             return super(MyEncoder, self).default(obj)
         
-import config        
+import config, requests     
         
+if not os.path.isfile(config.metadata):
+    print("Downloading metadata...")
+    def save_response_content(response, destination):
+        CHUNK_SIZE = 32768
+    
+        with open(destination, "wb") as f:
+            for chunk in response.iter_content(CHUNK_SIZE):
+                if chunk: # filter out keep-alive new chunks
+                    f.write(chunk)
+    def get_confirm_token(response):
+        for key, value in response.cookies.items():
+            if key.startswith('download_warning'):
+                return value
+        return None
+    URL = "https://docs.google.com/uc?export=download"
+    session = requests.Session()
+    response = session.get(URL, params = { 'id' : config.metaDataURL }, stream = True)
+    token = get_confirm_token(response)
+
+    if token:
+        params = { 'id' : config.metaDataURL, 'confirm' : token }
+        response = session.get(URL, params = params, stream = True)
+
+    save_response_content(response, config.metadata)    
+    
+    
 
 import pickle
 Data = pickle.load( open( config.metadata, "rb" ) )
-ids = Data[Data[:,3] >= 1][:,0]
+ids = Data[Data[:,5] == 1][:,0]#Data[Data[:,3] >= 1][:,0]
 
+if config.disableUseGPU:
+    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
 if not 'yolo' in globals() and config.predict:
     from yolo import YOLO
     yolo = YOLO()
@@ -44,7 +73,6 @@ hideLabels = False
 changedLabels = False
 
 
-import os
 def getPath(identifier,rootDir = config.rootDir):
     if(getImagesFromInternet):
         return True
@@ -104,6 +132,15 @@ def mouseEvent(event,nx,ny,flags,param):
                 predict()
                 changedLabels = True
             else:
+                switchSelecting = True
+                for box in labels:
+                    if('active' in box):
+                        box['label'] = possibleLabels[Button-2]['label']
+                        switchSelecting = False
+                if switchSelecting:
+                    for box in labels:
+                        if('active' in box):
+                            del box['active']
                 selectedLabel = Button-2
         return
     if(not state):
@@ -201,7 +238,6 @@ def removeDoublesFromJson():
         f.write(json.dumps(noDuplicates, cls=MyEncoder))
 
 
-import requests
 height, width, channels = 0,0,0
 def readImage(idPic):
     global ident, img, height, width, channels
