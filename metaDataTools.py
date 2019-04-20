@@ -5,24 +5,18 @@ Created on Sat Apr 13 13:47:08 2019
 
 @author: lukas
 """
-import json
+import json,config,os
 
-
-def readLabels():
-    file_name = 'guru99.txt'
-    with open(file_name) as f:
-        json_file = [line.rstrip('\n') for line in f]
-        json_file = ''.join(json_file)
-        print(json_file)
-        return json.loads(json_file)
     
-#to dangerous
-#def generateFiles():
-#    for ident in range(1000):
-#        file_name = 'metaData/labels'+str(ident%1000).zfill(4)+'.json'
-#        with open(file_name,'w+') as f:
-#            f.write('[')
-#            f.write(']')
+#very dangerous!!!
+def generateFiles():
+    if not os.path.exists('metaData'):
+        os.makedirs('metaData')
+    for ident in range(1000):
+        file_name = 'metaData/labels'+str(ident%1000).zfill(4)+'.json'
+        with open(file_name,'w+') as f:
+            f.write('[')
+            f.write(']')
         
 possibleLabels = {"FACE": 0,"PANTIES": 0,"BRA": 0,"BUTTOCKS": 0,"F_BREAST": 0,"F_GENITALIA": 0,"M_GENETALIA": 0,"HOLDING_H": 0,"CENSORED": 0,"LEWD": 0}
 numImages = 0
@@ -40,18 +34,19 @@ def readFromJson():
                 for label in labels:
                     possibleLabels[label['label']] += 1
                 ident = img['id']
-import time
-time1 = time.time()
-readFromJson()
-time2 = time.time()
-print('readFromJson function took {:.3f} ms'.format((time2-time1)*1000.0))
 
-print(numImages,possibleLabels)
+def printJson():
+    import time
+    time1 = time.time()
+    readFromJson()
+    time2 = time.time()
+    print('readFromJson function took {:.3f} ms'.format((time2-time1)*1000.0))
+    
+    print(numImages,possibleLabels)
                 
                 
 import os
-root = '/run/media/lukas/Data4Tb/danbooru2018/original/'
-def getPath(identifier,rootDir = root):
+def getPath(identifier,rootDir = config.rootDir):
     string = rootDir
     string += '0'+str(int(identifier)%1000).zfill(3)+'/'
     string += str(int(identifier))+'.'
@@ -64,7 +59,7 @@ def getPath(identifier,rootDir = root):
     return string
 possibleLabels = {"FACE": '0',"PANTIES": '1',"BRA": '2',"BUTTOCKS": '3',"F_BREAST": '4',"F_GENITALIA": '5',"M_GENETALIA": '6',"HOLDING_H": '7',"CENSORED": '8',"LEWD": '9'}
 def convertToYOLO():
-    with open('/home/lukas/Documents/Py/YOLO/train.txt','w+') as export:
+    with open('train.txt','w+') as export:
         for ident in range(1000):
             file_name = 'metaData/labels'+str(ident%1000).zfill(4)+'.json'
             with open(file_name,'r') as f:
@@ -80,7 +75,7 @@ def convertToYOLO():
                         string += possibleLabels[label['label']]+' '
                     export.write(string+'\n')
                     ident = img['id']
-convertToYOLO()
+
 def removeDoublesFromJson(data):
     for img in data:
         labels = img['labels']

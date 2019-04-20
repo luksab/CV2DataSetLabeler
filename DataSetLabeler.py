@@ -27,7 +27,7 @@ import pickle
 Data = pickle.load( open( config.metadata, "rb" ) )
 ids = Data[Data[:,3] >= 1][:,0]
 
-if not 'yolo' in globals():
+if not 'yolo' in globals() and config.predict:
     from yolo import YOLO
     yolo = YOLO()
 
@@ -60,7 +60,6 @@ def getPath(identifier,rootDir = config.rootDir):
     return string
 getImagesFromInternet = not os.path.exists(config.rootDir)
 
-
 import datetime
 session = {'ImagesLabeld': 0, 'TimeSpend': 0, 'StartTime': str(datetime.datetime.now())}
 from timeit import default_timer as timer
@@ -86,8 +85,11 @@ def deleteSelected():
 
 def predict():
     global labels, img, lastLabels
-    lastLabels += labels
-    labels = yolo.detect_box_np(img)
+    if(config.predict):
+        lastLabels += labels
+        labels = yolo.detect_box_np(img)
+    else:
+        print("I can't use the predictor. It is disabled in config.json")
 
 # mouse callback function
 def mouseEvent(event,nx,ny,flags,param):
