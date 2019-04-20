@@ -8,7 +8,6 @@ Created on Thu Apr 11 08:04:37 2019
 
 import cv2
 import numpy as np
-import detector
 import json
 class MyEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -20,20 +19,17 @@ class MyEncoder(json.JSONEncoder):
             return obj.tolist()
         else:
             return super(MyEncoder, self).default(obj)
+        
+import config        
+        
+
 import pickle
-Data = pickle.load( open( '/home/lukas/Documents/Py/Metadata/metadata.pk', "rb" ) )
+Data = pickle.load( open( config.metadata, "rb" ) )
 ids = Data[Data[:,3] >= 1][:,0]
 
-import tensorflow as tf
-from keras.backend.tensorflow_backend import set_session
-config = tf.ConfigProto()
-config.gpu_options.per_process_gpu_memory_fraction = 0.3
-set_session(tf.Session(config=config))
-
-from keras_retinanet import models
-if not 'detection_model' in globals():
-    detection_model = models.load_model('detector.h5', backbone_name='resnet101')
-m = detector.Detector(detection_model)
+if not 'yolo' in globals():
+    from yolo import YOLO
+    yolo = YOLO()
 
 labels = []
 state = False
@@ -47,18 +43,38 @@ showLabels = True
 hideLabels = False
 changedLabels = False
 
+
+import os
+def getPath(identifier,rootDir = config.rootDir):
+    if(getImagesFromInternet):
+        return True
+    string = rootDir
+    string += '0'+str(int(identifier)%1000).zfill(3)+'/'
+    string += str(int(identifier))+'.'
+    if(os.path.isfile(string+'jpg')):
+        string += 'jpg'
+    elif(os.path.isfile(string+'png')):
+        string += 'png'
+    else:
+        return False
+    return string
+getImagesFromInternet = not os.path.exists(config.rootDir)
+
+
+import datetime
+session = {'ImagesLabeld': 0, 'TimeSpend': 0, 'StartTime': str(datetime.datetime.now())}
+from timeit import default_timer as timer
+startedSessionAt = timer()
+
 def selectLabel(x,y):
     global labels
     for label in labels:
-        print(label['box'],'     ',x,y)
         if(label['box'][0] < x < label['box'][2] and label['box'][1] < y < label['box'][3]):
             if('active' in label):
                 del label['active']
                 continue
             else:
                 label['active'] = True
-                print(hasattr(label, 'active'))
-                print(label)
             return True
     return False
 
@@ -69,8 +85,9 @@ def deleteSelected():
 
 
 def predict():
-    global labels, img
-    labels = m.detect(img,min_prob=cv2.getTrackbarPos('minP','image')/100)
+    global labels, img, lastLabels
+    lastLabels += labels
+    labels = yolo.detect_box_np(img)
 
 # mouse callback function
 def mouseEvent(event,nx,ny,flags,param):
@@ -79,7 +96,6 @@ def mouseEvent(event,nx,ny,flags,param):
     if(nx < UIWidth+155*showLabels):
         if(event == cv2.EVENT_LBUTTONDOWN):
             Button = int((ny-UIHeight)/UIWidth)
-            print(Button)
             if(Button == 0):
                 select = not select
             if(Button == 1):
@@ -93,8 +109,7 @@ def mouseEvent(event,nx,ny,flags,param):
     
     if event == cv2.EVENT_LBUTTONDOWN:
         if(select):
-            if(selectLabel(nx-UIWidth-155*showLabels,ny-UIHeight)):
-                pass
+            selectLabel(nx-UIWidth-155*showLabels,ny-UIHeight)
             return
         if(state):
             box = [min(ix,x),min(iy,y),max(ix,x),max(iy,y)]
@@ -102,23 +117,19 @@ def mouseEvent(event,nx,ny,flags,param):
             changedLabels = True
         state = not state
 
-    elif event == cv2.EVENT_RBUTTONUP:
-        state = not state
     x,y = nx-UIWidth-155*showLabels,ny-UIHeight
 
 img = np.zeros((512,512,3), np.uint8)
 
-cv2.namedWindow('image',5)
+cv2.namedWindow('image',cv2.WINDOW_NORMAL)#5
 cv2.setMouseCallback('image',mouseEvent)
-def nothing(x):
-    return
-cv2.createTrackbar('minP','image',30,100,nothing)
 cv2.resizeWindow('image', 1920, 1080)
 
 
 def doneWithImage(write = True, goBack = False):
     global ix,iy,x,y,labels,state,lastLabels,ident,changedLabels
     if(write and changedLabels):
+        session['ImagesLabeld'] += 1
         removeDoublesFromJson()
         with open('lastID.txt','r+') as f:
             lastID = int(next(f))
@@ -150,7 +161,13 @@ def jumpToLast():
     with open('lastID.txt') as f:
         lastID = int(next(f))
     global ident
+#    data = readLabels()
+#    lastID = 0
+#    for image in data:
+#        if(lastID < image['id']):
+#            lastID = image['id']
     ident = lastID+1
+    print('jumping to',ident)
     doneWithImage(False,True)
 
 
@@ -159,7 +176,6 @@ def readLabels():
     with open(file_name) as f:
         json_file = [line.rstrip('\n') for line in f]
         json_file = ''.join(json_file)
-        #print(json_file)
         return json.loads(json_file)
     
 def removeDoublesFromJson():
@@ -180,33 +196,36 @@ def removeDoublesFromJson():
                 seen_titles.add(obj['id'])
         f.seek(0)
         noDuplicates.reverse()#reverse back, just because
-        f.write(json.dumps(noDuplicates))#, cls=MyEncoder))
-    
-    
-import os
-root = '/run/media/lukas/Data4Tb/danbooru2018/original/'
-def getPath(identifier,rootDir = root):
-    string = rootDir
-    string += '0'+str(int(identifier)%1000).zfill(3)+'/'
-    string += str(int(identifier))+'.'
-    if(os.path.isfile(string+'jpg')):
-        string += 'jpg'
-    elif(os.path.isfile(string+'png')):
-        string += 'png'
-    else:
-        return False
-    return string
+        f.write(json.dumps(noDuplicates, cls=MyEncoder))
 
 
+import requests
 height, width, channels = 0,0,0
 def readImage(idPic):
     global ident, img, height, width, channels
-    ident = idPic
-    img = cv2.imread(getPath(ident))
+    if(getImagesFromInternet):
+        with requests.get(config.url+str(idPic)+".json") as url:
+            if url.status_code == 200:
+                data = json.loads(url.text)
+                if('file_url' in data):
+                    with requests.get(data['file_url'], stream=True) as req:
+                        req.raw.decode_content = True
+                        arr = np.asarray(bytearray(req.content), dtype=np.uint8)
+                        img = cv2.imdecode(arr, -1) # 'Load it as it is'
+                else:
+                    print(data)
+            else:
+                print(url)
+    else:
+        ident = idPic
+        img = cv2.imread(getPath(ident))
     height, width, channels = img.shape
     #cv2.resizeWindow('image', width, height)
+    
 
-possibleLabels = [{'label':'label1','color': (247, 206, 118)}, {'label':'label2', 'color': (66, 244, 137)}}]
+
+
+possibleLabels = config.labels
 lastLabels = []
 def find_label(label_name):
     global possibleLabels
@@ -252,6 +271,8 @@ doneWithImage()
 
 font = cv2.FONT_HERSHEY_SIMPLEX
 sinceLast = 10
+lastKey = 0
+saveImg = False
 while(1):
     temp = img.copy()
     if(state):
@@ -272,6 +293,10 @@ while(1):
             cv2.putText(temp, box['label'], TpLeft, font, 0.75, (0,), 4,cv2.LINE_AA)
             cv2.putText(temp, box['label'], TpLeft, font, 0.75, (255,), 2,cv2.LINE_AA)
     
+    if(saveImg):
+        cv2.imwrite("saved/"+str(ident)+".png",temp)
+        saveImg = False
+    
     #draw mouseLines
     if(select):
         color = (100,100,100)
@@ -285,8 +310,8 @@ while(1):
     temp = np.vstack((makeUIH(width+UIWidth+155*showLabels), temp))
     cv2.imshow('image',temp)
     k = cv2.waitKey(15) & 0xFF
-    #print(k,sinceLast)
-    if(sinceLast > 15):
+    if(sinceLast > 20 or lastKey != k):
+        lastKey = k
         if k == ord(' '):
             doneWithImage()
         elif k == 99:#Right/c
@@ -318,13 +343,60 @@ while(1):
                 labels.append(lastLabels.pop())
                 changedLabels = True
         elif(k>=49 and k<49+len(possibleLabels)):
+            switchSelecting = True
             for box in labels:
                 if('active' in box):
                     box['label'] = possibleLabels[k-49]['label']
+                    switchSelecting = False
+            if switchSelecting:
+                for box in labels:
+                    if('active' in box):
+                        del box['active']
             selectedLabel = k-49
+        elif k == 48:
+            switchSelecting = True
+            for box in labels:
+                if('active' in box):
+                    box['label'] = possibleLabels[10]['label']
+                    switchSelecting = False
+            if switchSelecting:
+                for box in labels:
+                    if('active' in box):
+                        del box['active']
+            selectedLabel = 9
+        elif k == 13:
+            saveImg = True
         elif k != 255:
             print(k)
     if(k != 255):
         sinceLast = 0
     sinceLast += 1
+if session['ImagesLabeld'] > 0:
+    session['TimeSpend'] = int(timer()-startedSessionAt)
+    with open('sessions.txt','a+') as f:
+        f.write(json.dumps(session)+'\n')
 cv2.destroyAllWindows()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
