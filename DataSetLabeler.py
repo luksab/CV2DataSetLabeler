@@ -51,7 +51,8 @@ if not os.path.isfile(config.metadata):
 
 import pickle
 Data = pickle.load( open( config.metadata, "rb" ) )
-ids = Data[Data[:,5] == 1][:,0]#Data[Data[:,3] >= 1][:,0]
+#ids = Data[Data[:,5] == 1][:,0]
+ids = Data[Data[:,3] >= 1][:,0]
 
 if config.disableUseGPU:
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
@@ -131,7 +132,7 @@ def mouseEvent(event,nx,ny,flags,param):
             if(Button == 1):
                 predict()
                 changedLabels = True
-            else:
+            elif Button-2 >= 0 and Button-2 <= 9:
                 switchSelecting = True
                 for box in labels:
                     if('active' in box):
