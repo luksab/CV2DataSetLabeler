@@ -9,5 +9,5 @@
 "origMeta":"/run/media/lukas/Data4Tb/danbooru2018/metadata/20180000000000",
 "origMetaNumFiles":17,
 "origMetaNumPics":3336853,
-"modelPath":"trained_weights_final_OVERFIT.h5",
-"predict":true} 
+"modelPath":"trained_weights.h5",
+"predict":false} 
