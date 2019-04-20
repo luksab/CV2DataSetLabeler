@@ -39,7 +39,7 @@ x,y = -1,-1
 ident = 0
 UIWidth = 40
 UIHeight= 40
-showLabels = True
+showLabels = config.showLabels
 hideLabels = False
 changedLabels = False
 
@@ -296,6 +296,8 @@ while(1):
             cv2.putText(temp, box['label'], TpLeft, font, 0.75, (255,), 2,cv2.LINE_AA)
     
     if(saveImg):
+        if not os.path.exists('saved'):
+            os.makedirs('saved')
         cv2.imwrite("saved/"+str(ident)+".png",temp)
         saveImg = False
     
@@ -328,6 +330,8 @@ while(1):
             select = not select
         elif k == 101:#e
             deleteSelected()
+        elif k == 105:#i
+            showLabels = not showLabels
         elif k == 106:#j
             jumpToLast()
         elif k == 112:#p
