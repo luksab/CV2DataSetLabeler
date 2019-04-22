@@ -20,7 +20,9 @@ def generateFiles():
         
 
 def readFromJson():
-    possibleLabels = {"FACE": 0,"PANTIES": 0,"BRA": 0,"BUTTOCKS": 0,"F_BREAST": 0,"F_GENITALIA": 0,"M_GENETALIA": 0,"HOLDING_H": 0,"CENSORED": 0,"LEWD": 0}
+    possibleLabels = {}
+    for label in config.labels:
+        possibleLabels[label['label']] = 0
     numImages = 0
     for ident in range(1000):
         print(ident)
@@ -59,7 +61,13 @@ def getPath(identifier,rootDir = config.rootDir):
     return string
 
 def convertToYOLO():
-    possibleLabels = {"FACE": '0',"PANTIES": '1',"BRA": '2',"BUTTOCKS": '3',"F_BREAST": '4',"F_GENITALIA": '5',"M_GENETALIA": '6',"HOLDING_H": '7',"CENSORED": '8',"LEWD": '9'}
+    i = 0
+    possibleLabels = {}
+    for label in config.labels:
+        possibleLabels[label['label']] = str(i)
+        i += 1
+    print("The labels are:",possibleLabels)
+    num = 0
     with open('train.txt','w+') as export:
         for ident in range(1000):
             file_name = 'metaData/labels'+str(ident%1000).zfill(4)+'.json'
@@ -68,6 +76,7 @@ def convertToYOLO():
                 json_file = ''.join(json_file)
                 json_file = json.loads(json_file)
                 for img in json_file:
+                    num += 1
                     string = getPath(img['id'])+' '
                     labels = img['labels']
                     for label in labels:
@@ -76,6 +85,7 @@ def convertToYOLO():
                         string += possibleLabels[label['label']]+' '
                     export.write(string+'\n')
                     ident = img['id']
+    print("Converted",num,"images.")
 
 def removeDoublesFromJson(data):
     for img in data:
