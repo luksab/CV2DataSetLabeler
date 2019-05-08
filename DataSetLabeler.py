@@ -51,6 +51,7 @@ if not os.path.isfile(config.metadata):
 
 import pickle
 Data = pickle.load( open( config.metadata, "rb" ) )
+#Data = Data[Data[:,3] < 1]
 #ids = Data[Data[:,5] == 1][:,0]
 ids = Data[Data[:,3] >= 1][:,0]
 
@@ -73,10 +74,11 @@ showLabels = config.showLabels
 hideLabels = False
 changedLabels = False
 
+skipImgs = [7177,7212,7373]
 
 def getPath(identifier,rootDir = config.rootDir):
     if(getImagesFromInternet):
-        return True
+        return identifier not in skipImgs
     string = rootDir
     string += '0'+str(int(identifier)%1000).zfill(3)+'/'
     string += str(int(identifier))+'.'
@@ -118,7 +120,7 @@ def predict():
         lastLabels += labels
         labels = yolo.detect_box_np(img)
     else:
-        print("I can't use the predictor. It is disabled in config.json")
+        printError("I can't use the predictor. It is disabled in config.json")
 
 # mouse callback function
 def mouseEvent(event,nx,ny,flags,param):
@@ -180,16 +182,17 @@ def doneWithImage(write = True, goBack = False):
     labels = []
     lastLabels = []
     if(goBack):
-        if(ident>1):
-            i = ident-1
-            while(not (i in ids) or not getPath(i)):
-                i -= 1
-        else:
+        i = ident-1
+        while not((i in ids) and getPath(i)) and i>1:
+            i -= 1
+        if i == 0:
+            printError('Did not find image')
             i = 1
     else:
         i = ident+1
-        while(not (i in ids) or not getPath(i)):
+        while not((i in ids) and getPath(i)):
             i += 1
+    print(i)
     readImage(i)
     ident = i
     data = readLabels()
@@ -239,25 +242,52 @@ def removeDoublesFromJson():
         f.write(json.dumps(noDuplicates, cls=MyEncoder))
 
 
+import socket
+def internet(host = "8.8.8.8", port = 53, timeout = 3):
+    try:
+        socket.setdefaulttimeout(timeout)
+        socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect((host,port))
+        return True
+    except Exception as ex:
+        print(ex)
+        return False
+
+
 height, width, channels = 0,0,0
 def readImage(idPic):
     global ident, img, height, width, channels
     if(getImagesFromInternet):
-        with requests.get(config.url+str(idPic)+".json") as url:
-            if url.status_code == 200:
-                data = json.loads(url.text)
-                if('file_url' in data):
-                    with requests.get(data['file_url'], stream=True) as req:
-                        req.raw.decode_content = True
-                        arr = np.asarray(bytearray(req.content), dtype=np.uint8)
-                        img = cv2.imdecode(arr, -1) # 'Load it as it is'
-                else:
-                    print(data)
+        if not os.path.isfile(config.saveImgURL+"/"+str(ident)+".png"):
+            if(internet()):
+                with requests.get(config.url+str(idPic)+".json") as url:
+                    if url.status_code == 200:
+                        data = json.loads(url.text)
+                        if('file_url' in data):
+                            with requests.get(data['file_url'], stream=True) as req:
+                                req.raw.decode_content = True
+                                arr = np.asarray(bytearray(req.content), dtype=np.uint8)
+                                img = cv2.imdecode(arr, -1) # 'Load it as it is'
+                                if config.saveImgs:
+                                    cv2.imwrite(config.saveImgURL+"/"+str(ident)+".png",img)
+                                    print('reading img'+config.saveImgURL+"/"+str(ident)+".png")
+                                    img = cv2.imread(config.saveImgURL+"/"+str(ident)+".png",cv2.IMREAD_COLOR)
+                        else:
+                            printError("Didn't find any file in the response from",data['id'])
+                            print(data)
+                            skipImgs.append(data['id'])
+                            doneWithImage(write=False)
+                    else:
+                        printError("The server didn't respond properly to",url)
+                        doneWithImage(write=False)
             else:
-                print(url)
+                printError("No Internet! - can't download image")
+        else:
+            print("Found",config.saveImgURL+"/"+str(ident)+".png")
+            img = cv2.imread(config.saveImgURL+"/"+str(ident)+".png",cv2.IMREAD_COLOR)
     else:
         ident = idPic
-        img = cv2.imread(getPath(ident))
+        print(getPath(ident))
+        img = cv2.imread(getPath(ident),cv2.IMREAD_COLOR)
     height, width, channels = img.shape
     #cv2.resizeWindow('image', width, height)
     
@@ -306,12 +336,33 @@ def makeUIH(width):
     cv2.putText(UI, str(ident), (int(width/2),30), font, 0.75, (255,), 2,cv2.LINE_AA)
     return UI
 
+font = cv2.FONT_HERSHEY_SIMPLEX
+
+def printError(errorMsg):
+    global error, timeSinceError
+    timeSinceError = 0
+    error = errorMsg
+    print(errorMsg)
+
+def displayError(img,error,center=True, x = None, y = None):
+    height = 100
+    width = 750
+    if(center):
+        x = img.shape[1]//2 - width//2
+        y = img.shape[0]//2 - height//2
+    cv2.rectangle(img, (x,y), (x+width,y+height), (255,255,255), -1)
+    cv2.putText(img, error, (x+10,y+height//2), font, 0.75, (0,), 4,cv2.LINE_AA)
+    return img
+
 doneWithImage()
 
-font = cv2.FONT_HERSHEY_SIMPLEX
+timeSinceError = 0
+error = ""
+
 sinceLast = 10
 lastKey = 0
 saveImg = False
+#try:
 while(1):
     temp = img.copy()
     if(state):
@@ -349,9 +400,15 @@ while(1):
     
     temp = np.hstack((makeUIV(height), temp))
     temp = np.vstack((makeUIH(width+UIWidth+155*showLabels), temp))
+    
+    if error != "":
+        displayError(temp,error)
     cv2.imshow('image',temp)
     k = cv2.waitKey(15) & 0xFF
+    timeSinceError += 1
     if(sinceLast > 20 or lastKey != k):
+        if(timeSinceError > 100):
+            error = ""
         lastKey = k
         if k == ord(' '):
             doneWithImage()
@@ -414,13 +471,17 @@ while(1):
     if(k != 255):
         sinceLast = 0
     sinceLast += 1
+#except:
+#    print('exception')
 if session['ImagesLabeld'] > 0:
     session['TimeSpend'] = int(timer()-startedSessionAt)
+    print(json.dumps(session))
     with open('sessions.txt','a+') as f:
         f.write(json.dumps(session)+'\n')
 cv2.destroyAllWindows()
 
-
+def main():
+    pass
 
 
 
