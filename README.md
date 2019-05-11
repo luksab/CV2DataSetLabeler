@@ -16,6 +16,7 @@ Label data sets for machine learning with a customizable UI written in Python CV
 * Go to last image: x
 * Toggle selection mode: s
 * Delete all selected boxes: e
+* Enable instaDelete: d
 * Toggle label hints on the left: i
 * Jump to last edited image: j
 * Use YOLO to predict boxes: p
