@@ -54,7 +54,7 @@ Data = pickle.load( open( config.metadata, "rb" ) )
 #Data = Data[Data[:,3] < 1]
 #ids = Data[Data[:,5] == 1][:,0]
 ids = Data[Data[:,3] >= 1][:,0]
-
+    
 if config.disableUseGPU:
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = ""
@@ -97,7 +97,7 @@ from timeit import default_timer as timer
 startedSessionAt = timer()
 
 def selectLabel(x,y):
-    global labels
+    global labels,instaDelete
     for label in labels:
         if(label['box'][0] < x < label['box'][2] and label['box'][1] < y < label['box'][3]):
             if('active' in label):
@@ -124,7 +124,7 @@ def predict():
 
 # mouse callback function
 def mouseEvent(event,nx,ny,flags,param):
-    global ix,iy,x,y,labels,state,UIWidth,select,selectedLabel,possibleLabels,changedLabels
+    global ix,iy,x,y,labels,state,UIWidth,select,selectedLabel,possibleLabels,changedLabels, instaDelete
 
     if(nx < UIWidth+155*showLabels):
         if(event == cv2.EVENT_LBUTTONDOWN):
@@ -150,8 +150,11 @@ def mouseEvent(event,nx,ny,flags,param):
         ix,iy = nx-UIWidth-155*showLabels,ny-UIHeight
     
     if event == cv2.EVENT_LBUTTONDOWN:
-        if(select):
+        if select or instaDelete:
             selectLabel(nx-UIWidth-155*showLabels,ny-UIHeight)
+            if instaDelete:
+                deleteSelected()
+                instaDelete = False
             return
         if(state):
             box = [min(ix,x),min(iy,y),max(ix,x),max(iy,y)]
@@ -362,127 +365,135 @@ error = ""
 sinceLast = 10
 lastKey = 0
 saveImg = False
-#try:
-while(1):
-    temp = img.copy()
-    if(state):
-        cv2.rectangle(temp,(ix,iy),(x,y),possibleLabels[selectedLabel]['color'],1)
-    if(not hideLabels):
-        for box in labels:
-            overlay = temp.copy()
-            TpLeft = (box['box'][0], box['box'][1])
-            BRight = (box['box'][2], box['box'][3])
-            if('active' in box):
-                color = find_label(box['label'])['color']
-                color = (color[0]+100,color[1]+100,color[2]+100)
-                cv2.rectangle(temp, TpLeft, BRight, color, 2)
-            else:
-                cv2.rectangle(overlay, TpLeft, BRight, find_label(box['label'])['color'], -1)
-                cv2.addWeighted(overlay, 0.5, temp, 1-0.5,0, temp)
-                cv2.rectangle(temp, TpLeft, BRight, find_label(box['label'])['color'], 1)
-            cv2.putText(temp, box['label'], TpLeft, font, 0.75, (0,), 4,cv2.LINE_AA)
-            cv2.putText(temp, box['label'], TpLeft, font, 0.75, (255,), 2,cv2.LINE_AA)
-    
-    if(saveImg):
-        if not os.path.exists('saved'):
-            os.makedirs('saved')
-        cv2.imwrite("saved/"+str(ident)+".png",temp)
-        saveImg = False
-    
-    #draw mouseLines
-    if(select):
-        color = (100,100,100)
-    else:
-        color = (200,200,200)
-    cv2.line(temp,(0,y),(width,y),color)
-    cv2.line(temp,(x,0),(x,height),color)
-    
-    
-    temp = np.hstack((makeUIV(height), temp))
-    temp = np.vstack((makeUIH(width+UIWidth+155*showLabels), temp))
-    
-    if error != "":
-        displayError(temp,error)
-    cv2.imshow('image',temp)
-    k = cv2.waitKey(15) & 0xFF
-    timeSinceError += 1
-    if(sinceLast > 20 or lastKey != k):
-        if(timeSinceError > 100):
-            error = ""
-        lastKey = k
-        if k == ord(' '):
-            doneWithImage()
-        elif k == 99:#Right/c
-            doneWithImage(False)
-        elif k == 120:#Left/x
-            doneWithImage(False,True)
-        elif k == 115:#s
-            if(select):
-                for box in labels:
-                    if('active' in box):
-                        del box['active']
-            select = not select
-        elif k == 101:#e
-            deleteSelected()
-        elif k == 105:#i
-            showLabels = not showLabels
-        elif k == 106:#j
-            jumpToLast()
-        elif k == 112:#p
-            predict()
-        elif k == 27:#esc
-            break
-        elif k == 104:#h
-            hideLabels = not hideLabels
-        elif k == 122:#z
-            if(len(labels)>0):
-                lastLabels.append(labels.pop())
-                changedLabels = True
-        elif k == 121:#y
-            if(len(lastLabels)>0):
-                labels.append(lastLabels.pop())
-                changedLabels = True
-        elif(k>=49 and k<49+len(possibleLabels)):
-            switchSelecting = True
-            for box in labels:
-                if('active' in box):
-                    box['label'] = possibleLabels[k-49]['label']
-                    switchSelecting = False
-            if switchSelecting:
-                for box in labels:
-                    if('active' in box):
-                        del box['active']
-            selectedLabel = k-49
-        elif k == 48:
-            switchSelecting = True
-            for box in labels:
-                if('active' in box):
-                    box['label'] = possibleLabels[10]['label']
-                    switchSelecting = False
-            if switchSelecting:
-                for box in labels:
-                    if('active' in box):
-                        del box['active']
-            selectedLabel = 9
-        elif k == 13:
-            saveImg = True
-        elif k != 255:
-            print(k)
-    if(k != 255):
-        sinceLast = 0
-    sinceLast += 1
-#except:
-#    print('exception')
-if session['ImagesLabeld'] > 0:
-    session['TimeSpend'] = int(timer()-startedSessionAt)
-    print(json.dumps(session))
-    with open('sessions.txt','a+') as f:
-        f.write(json.dumps(session)+'\n')
-cv2.destroyAllWindows()
+instaDelete = False
 
-def main():
-    pass
+def main(newIds = ids):
+    global selectedLabel, lastKey, saveImg, error, sinceLast, timeSinceError, select, showLabels, hideLabels, changedLabels, ids, instaDelete
+    ids = newIds
+    print(ids)
+    while(1):
+        temp = img.copy()
+        if(state):
+            cv2.rectangle(temp,(ix,iy),(x,y),possibleLabels[selectedLabel]['color'],1)
+        if(not hideLabels):
+            for box in labels:
+                overlay = temp.copy()
+                TpLeft = (box['box'][0], box['box'][1])
+                BRight = (box['box'][2], box['box'][3])
+                if('active' in box):
+                    color = find_label(box['label'])['color']
+                    color = (color[0]+100,color[1]+100,color[2]+100)
+                    cv2.rectangle(temp, TpLeft, BRight, color, 2)
+                else:
+                    cv2.rectangle(overlay, TpLeft, BRight, find_label(box['label'])['color'], -1)
+                    cv2.addWeighted(overlay, 0.5, temp, 1-0.5,0, temp)
+                    cv2.rectangle(temp, TpLeft, BRight, find_label(box['label'])['color'], 1)
+                cv2.putText(temp, box['label'], TpLeft, font, 0.75, (0,), 4,cv2.LINE_AA)
+                cv2.putText(temp, box['label'], TpLeft, font, 0.75, (255,), 2,cv2.LINE_AA)
+        
+        if(saveImg):
+            if not os.path.exists('saved'):
+                os.makedirs('saved')
+            cv2.imwrite("saved/"+str(ident)+".png",temp)
+            saveImg = False
+        
+        #draw mouseLines
+        if instaDelete:
+            color = (255,0,0)
+        elif select:
+            color = (100,100,100)
+        else:
+            color = (200,200,200)
+        cv2.line(temp,(0,y),(width,y),color)
+        cv2.line(temp,(x,0),(x,height),color)
+        
+        
+        temp = np.hstack((makeUIV(height), temp))
+        temp = np.vstack((makeUIH(width+UIWidth+155*showLabels), temp))
+        
+        if error != "":
+            displayError(temp,error)
+        cv2.imshow('image',temp)
+        k = cv2.waitKey(15) & 0xFF
+        timeSinceError += 1
+        if(sinceLast > 20 or lastKey != k):
+            if(timeSinceError > 100):
+                error = ""
+            lastKey = k
+            if k == ord(' '):
+                doneWithImage()
+            elif k == 99:#Right/c
+                doneWithImage(False)
+            elif k == 120:#Left/x
+                doneWithImage(False,True)
+            elif k == 115:#s
+                if(select):
+                    for box in labels:
+                        if('active' in box):
+                            del box['active']
+                select = not select
+            elif k == 101:#e
+                deleteSelected()
+            elif k == 100:#d
+                instaDelete = True
+            elif k == 105:#i
+                showLabels = not showLabels
+            elif k == 106:#j
+                jumpToLast()
+            elif k == 112:#p
+                predict()
+            elif k == 27:#esc
+                break
+            elif k == 104:#h
+                hideLabels = not hideLabels
+            elif k == 122:#z
+                if(len(labels)>0):
+                    lastLabels.append(labels.pop())
+                    changedLabels = True
+            elif k == 121:#y
+                if(len(lastLabels)>0):
+                    labels.append(lastLabels.pop())
+                    changedLabels = True
+            elif(k>=49 and k<49+len(possibleLabels)):
+                switchSelecting = True
+                for box in labels:
+                    if('active' in box):
+                        box['label'] = possibleLabels[k-49]['label']
+                        switchSelecting = False
+                if switchSelecting:
+                    for box in labels:
+                        if('active' in box):
+                            del box['active']
+                selectedLabel = k-49
+            elif k == 48:
+                switchSelecting = True
+                for box in labels:
+                    if('active' in box):
+                        box['label'] = possibleLabels[10]['label']
+                        switchSelecting = False
+                if switchSelecting:
+                    for box in labels:
+                        if('active' in box):
+                            del box['active']
+                selectedLabel = 9
+            elif k == 13:
+                saveImg = True
+            elif k != 255:
+                print(k)
+        if(k != 255):
+            sinceLast = 0
+        sinceLast += 1
+    #except:
+    #    print('exception')
+    if session['ImagesLabeld'] > 0:
+        session['TimeSpend'] = int(timer()-startedSessionAt)
+        print(json.dumps(session))
+        with open('sessions.txt','a+') as f:
+            f.write(json.dumps(session)+'\n')
+    cv2.destroyAllWindows()
 
+if __name__ == '__main__':
+    main()
 
 
 
